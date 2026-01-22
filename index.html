@@ -341,9 +341,10 @@
 
             conn.on('data', (data) => {
                 if (data.type === 'move') {
-                    receiveMove(data.index, data.player);
+                    // Immediate visual update
+                    setTimeout(() => receiveMove(data.index, data.player), 0);
                 } else if (data.type === 'reset') {
-                    resetGameState();
+                    setTimeout(() => resetGameState(), 0);
                 }
             });
 
@@ -368,9 +369,15 @@
 
         function makeMove(index, player) {
             board[index] = player;
-            const cell = document.querySelectorAll('.cell')[index];
-            cell.textContent = player;
-            cell.classList.add(player.toLowerCase());
+            const cells = document.querySelectorAll('.cell');
+            cells[index].textContent = player;
+            cells[index].classList.add(player.toLowerCase());
+            cells[index].disabled = true;
+
+            // Force re-render
+            cells[index].style.display = 'none';
+            cells[index].offsetHeight;
+            cells[index].style.display = '';
 
             if (checkWin(player)) {
                 const winner = player === mySymbol ? 'तुम्ही जिंकलात' : 'प्रतिस्पर्धी जिंकला';
@@ -453,12 +460,17 @@
             board = ['', '', '', '', '', '', '', '', ''];
             currentPlayer = 'X';
             gameActive = true;
-            document.querySelectorAll('.cell').forEach(cell => {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => {
                 cell.textContent = '';
                 cell.classList.remove('x', 'o', 'winner');
+                cell.disabled = false;
+                // Force visual update
+                cell.style.display = 'none';
+                cell.offsetHeight;
+                cell.style.display = '';
             });
             updateStatus();
-            enableBoard();
         }
 
         function copyRoomId() {
