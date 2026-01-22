@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="mr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Tic-Tac-Toe</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+        }
+
+        .container {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 90%;
+        }
+
+        h1 {
+            color: #667EEA;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .lobby {
+            display: block;
+        }
+
+        .game-area {
+            display: none;
+        }
+
+        .input-group {
+            margin: 20px 0;
+        }
+
+        input {
+            padding: 12px;
+            font-size: 1em;
+            border: 2px solid #667EEA;
+            border-radius: 8px;
+            width: 100%;
+            margin: 10px 0;
+        }
+
+        button {
+            background: #667EEA;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1em;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: #764BA2;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .room-id {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #667EEA;
+            word-break: break-all;
+        }
+
+        .status {
+            font-size: 1.2em;
+            margin: 15px 0;
+            color: #333;
+            min-height: 30px;
+            font-weight: 500;
+        }
+
+        .connection-status {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+
+        .connected {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .waiting {
+            background: #FFC107;
+            color: #333;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            grid-template-rows: repeat(3, 100px);
+            gap: 10px;
+            margin: 20px auto;
+            justify-content: center;
+        }
+
+        .cell {
+            background: #F0F0F0;
+            border: none;
+            font-size: 2.5em;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .cell:hover:not(:disabled) {
+            background: #E0E0E0;
+            transform: scale(1.05);
+        }
+
+        .cell:disabled {
+            cursor: not-allowed;
+        }
+
+        .cell.x {
+            color: #667EEA;
+        }
+
+        .cell.o {
+            color: #764BA2;
+        }
+
+        .cell.winner {
+            background: #FFD700;
+            animation: pulse 0.5s ease-in-out;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+        }
+
+        .score {
+            display: flex;
+            justify-content: space-around;
+            margin: 15px 0;
+            font-size: 1em;
+        }
+
+        .score div {
+            padding: 8px 15px;
+            border-radius: 8px;
+            background: #F0F0F0;
+        }
+
+        .player-x {
+            color: #667EEA;
+            font-weight: bold;
+        }
+
+        .player-o {
+            color: #764BA2;
+            font-weight: bold;
+        }
+
+        .copy-btn {
+            background: #4CAF50;
+            padding: 8px 15px;
+            font-size: 0.9em;
+        }
+
+        .copy-btn:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎮 Multiplayer Tic-Tac-Toe</h1>
+
+        <div class="lobby" id="lobby">
+            <div class="input-group">
+                <button onclick="createGame()">नवीन गेम तयार करा</button>
+            </div>
+            <div style="margin: 20px 0;">किंवा</div>
+            <div class="input-group">
+                <input type="text" id="joinRoomId" placeholder="Room ID टाका">
+                <button onclick="joinGame()">गेममध्ये सामील व्हा</button>
+            </div>
+        </div>
+
+        <div class="game-area" id="gameArea">
+            <div class="connection-status waiting" id="connectionStatus">
+                प्रतीक्षा करत आहे...
+            </div>
+
+            <div id="roomInfo" style="display:none;">
+                <p style="margin: 10px 0;">तुमचा Room ID:</p>
+                <div class="room-id" id="roomIdDisplay"></div>
+                <button class="copy-btn" onclick="copyRoomId()">📋 Copy करा</button>
+                <p style="margin-top: 10px; font-size: 0.9em; color: #666;">
+                    हा ID तुमच्या मित्राला पाठवा
+                </p>
+            </div>
+
+            <div class="score">
+                <div>
+                    <span class="player-x">तुम्ही (X):</span>
+                    <span id="scoreX">0</span>
+                </div>
+                <div>
+                    <span class="player-o">प्रतिस्पर्धी (O):</span>
+                    <span id="scoreO">0</span>
+                </div>
+            </div>
+
+            <div class="status" id="status"></div>
+
+            <div class="board" id="board">
+                <button class="cell" data-index="0" onclick="handleCellClick(0)" disabled></button>
+                <button class="cell" data-index="1" onclick="handleCellClick(1)" disabled></button>
+                <button class="cell" data-index="2" onclick="handleCellClick(2)" disabled></button>
+                <button class="cell" data-index="3" onclick="handleCellClick(3)" disabled></button>
+                <button class="cell" data-index="4" onclick="handleCellClick(4)" disabled></button>
+                <button class="cell" data-index="5" onclick="handleCellClick(5)" disabled></button>
+                <button class="cell" data-index="6" onclick="handleCellClick(6)" disabled></button>
+                <button class="cell" data-index="7" onclick="handleCellClick(7)" disabled></button>
+                <button class="cell" data-index="8" onclick="handleCellClick(8)" disabled></button>
+            </div>
+
+            <button onclick="resetGame()">नवीन राउंड</button>
+            <button onclick="backToLobby()">मुख्य मेनू</button>
+        </div>
+    </div>
+
+    <script>
+        let peer = null;
+        let conn = null;
+        let myId = null;
+        let isHost = false;
+        let mySymbol = '';
+        let currentPlayer = 'X';
+        let board = ['', '', '', '', '', '', '', '', ''];
+        let gameActive = false;
+        let scoreX = 0;
+        let scoreO = 0;
+
+        const winPatterns = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8],
+            [0, 3, 6], [1, 4, 7], [2, 5, 8],
+            [0, 4, 8], [2, 4, 6]
+        ];
+
+        function createGame() {
+            peer = new Peer();
+
+            peer.on('open', (id) => {
+                myId = id;
+                isHost = true;
+                mySymbol = 'X';
+                document.getElementById('lobby').style.display = 'none';
+                document.getElementById('gameArea').style.display = 'block';
+                document.getElementById('roomInfo').style.display = 'block';
+                document.getElementById('roomIdDisplay').textContent = id;
+                document.getElementById('connectionStatus').textContent = 'दुसऱ्या खेळाडूची प्रतीक्षा...';
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+                document.getElementById('connectionStatus').textContent = 'जोडले गेले!';
+                document.getElementById('connectionStatus').className = 'connection-status connected';
+                document.getElementById('roomInfo').style.display = 'none';
+                gameActive = true;
+                updateStatus();
+                enableBoard();
+            });
+        }
+
+        function joinGame() {
+            const roomId = document.getElementById('joinRoomId').value.trim();
+            if (!roomId) {
+                alert('कृपया Room ID टाका');
+                return;
+            }
+
+            peer = new Peer();
+
+            peer.on('open', (id) => {
+                myId = id;
+                isHost = false;
+                mySymbol = 'O';
+                conn = peer.connect(roomId);
+                setupConnection();
+                document.getElementById('lobby').style.display = 'none';
+                document.getElementById('gameArea').style.display = 'block';
+                document.getElementById('connectionStatus').textContent = 'जोडत आहे...';
+            });
+        }
+
+        function setupConnection() {
+            conn.on('open', () => {
+                document.getElementById('connectionStatus').textContent = 'जोडले गेले!';
+                document.getElementById('connectionStatus').className = 'connection-status connected';
+                gameActive = true;
+                updateStatus();
+                enableBoard();
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'move') {
+                    receiveMove(data.index, data.player);
+                } else if (data.type === 'reset') {
+                    resetGameState();
+                }
+            });
+
+            conn.on('close', () => {
+                document.getElementById('connectionStatus').textContent = 'संपर्क तुटला!';
+                document.getElementById('connectionStatus').className = 'connection-status waiting';
+                gameActive = false;
+                disableBoard();
+            });
+        }
+
+        function handleCellClick(index) {
+            if (board[index] !== '' || !gameActive || currentPlayer !== mySymbol) {
+                return;
+            }
+
+            makeMove(index, mySymbol);
+            if (conn && conn.open) {
+                conn.send({ type: 'move', index: index, player: mySymbol });
+            }
+        }
+
+        function makeMove(index, player) {
+            board[index] = player;
+            const cell = document.querySelectorAll('.cell')[index];
+            cell.textContent = player;
+            cell.classList.add(player.toLowerCase());
+
+            if (checkWin(player)) {
+                const winner = player === mySymbol ? 'तुम्ही जिंकलात' : 'प्रतिस्पर्धी जिंकला';
+                document.getElementById('status').textContent = `🎉 ${winner}!`;
+                gameActive = false;
+                highlightWinner(player);
+                if (player === 'X') {
+                    scoreX++;
+                    document.getElementById('scoreX').textContent = scoreX;
+                } else {
+                    scoreO++;
+                    document.getElementById('scoreO').textContent = scoreO;
+                }
+                disableBoard();
+                return;
+            }
+
+            if (checkDraw()) {
+                document.getElementById('status').textContent = '🤝 बरोबरी!';
+                gameActive = false;
+                disableBoard();
+                return;
+            }
+
+            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+            updateStatus();
+        }
+
+        function receiveMove(index, player) {
+            makeMove(index, player);
+        }
+
+        function checkWin(player) {
+            return winPatterns.some(pattern => {
+                return pattern.every(index => board[index] === player);
+            });
+        }
+
+        function highlightWinner(player) {
+            const cells = document.querySelectorAll('.cell');
+            winPatterns.forEach(pattern => {
+                if (pattern.every(index => board[index] === player)) {
+                    pattern.forEach(index => {
+                        cells[index].classList.add('winner');
+                    });
+                }
+            });
+        }
+
+        function checkDraw() {
+            return board.every(cell => cell !== '');
+        }
+
+        function updateStatus() {
+            if (!gameActive) return;
+            const turn = currentPlayer === mySymbol ? 'तुमची पाळी' : 'प्रतिस्पर्धीची पाळी';
+            document.getElementById('status').textContent = turn;
+        }
+
+        function enableBoard() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.disabled = false;
+            });
+        }
+
+        function disableBoard() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.disabled = true;
+            });
+        }
+
+        function resetGame() {
+            if (conn && conn.open) {
+                conn.send({ type: 'reset' });
+            }
+            resetGameState();
+        }
+
+        function resetGameState() {
+            board = ['', '', '', '', '', '', '', '', ''];
+            currentPlayer = 'X';
+            gameActive = true;
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.textContent = '';
+                cell.classList.remove('x', 'o', 'winner');
+            });
+            updateStatus();
+            enableBoard();
+        }
+
+        function copyRoomId() {
+            const roomId = document.getElementById('roomIdDisplay').textContent;
+            navigator.clipboard.writeText(roomId).then(() => {
+                alert('Room ID कॉपी झाला!');
+            });
+        }
+
+        function backToLobby() {
+            if (conn) conn.close();
+            if (peer) peer.destroy();
+            location.reload();
+        }
+    </script>
+</body>
+
+</html>
