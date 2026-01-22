@@ -122,6 +122,11 @@
             color: #333;
         }
 
+        .error {
+            background: #f44336;
+            color: white;
+        }
+
         .board {
             display: grid;
             grid-template-columns: repeat(3, 90px);
@@ -220,6 +225,15 @@
             max-height: 60px;
             overflow-y: auto;
         }
+
+        .error-msg {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 0.85em;
+        }
     </style>
 </head>
 
@@ -286,6 +300,8 @@
         let myScore = 0;
         let opponentScore = 0;
         let debugLogs = [];
+        let connectionAttempts = 0;
+        const MAX_CONNECTION_ATTEMPTS = 3;
 
         const winPatterns = [
             [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -293,9 +309,24 @@
             [0, 4, 8], [2, 4, 6]
         ];
 
+        // Enhanced PeerJS configuration with STUN/TURN servers
+        const peerConfig = {
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' }
+                ]
+            },
+            debug: 2
+        };
+
         function log(msg) {
             console.log(msg);
-            debugLogs.push(new Date().toLocaleTimeString() + ': ' + msg);
+            const timestamp = new Date().toLocaleTimeString();
+            debugLogs.push(`${timestamp}: ${msg}`);
             if (debugLogs.length > 5) debugLogs.shift();
             document.getElementById('debug').innerHTML = debugLogs.join('<br>');
         }
@@ -324,7 +355,10 @@
 
         function createGame() {
             roomCode = generateRoomCode();
-            peer = new Peer('ttt-' + roomCode);
+            const peerId = 'ttt-' + roomCode;
+
+            log('Creating room: ' + roomCode);
+            peer = new Peer(peerId, peerConfig);
 
             peer.on('open', (id) => {
                 isHost = true;
@@ -337,19 +371,17 @@
                 document.getElementById('myLabel').innerHTML = '<span class="player-x">तुम्ही (X):</span>';
                 document.getElementById('opponentLabel').innerHTML = '<span class="player-o">प्रतिस्पर्धी (O):</span>';
                 initBoard();
-                log('Room created: ' + roomCode);
+                log('✅ Room created successfully: ' + id);
             });
 
             peer.on('connection', (connection) => {
                 conn = connection;
-                log('Opponent connected!');
+                log('📞 Incoming connection...');
                 setupConnection();
-                connectionEstablished();
             });
 
             peer.on('error', (err) => {
-                log('ERROR: ' + err.type);
-                alert('एरर: ' + err.type);
+                handlePeerError(err);
             });
         }
 
@@ -360,15 +392,25 @@
                 return;
             }
 
-            peer = new Peer();
+            connectionAttempts++;
+            log(`Connection attempt ${connectionAttempts}/${MAX_CONNECTION_ATTEMPTS}`);
+
+            peer = new Peer(peerConfig);
 
             peer.on('open', (id) => {
                 isHost = false;
                 mySymbol = 'O';
                 const targetId = 'ttt-' + roomCode;
-                log('Connecting to: ' + roomCode);
-                conn = peer.connect(targetId);
+
+                log('🔗 Connecting to: ' + targetId);
+
+                conn = peer.connect(targetId, {
+                    reliable: true,
+                    serialization: 'json'
+                });
+
                 setupConnection();
+
                 document.getElementById('lobby').style.display = 'none';
                 document.getElementById('gameArea').style.display = 'block';
                 document.getElementById('connectionStatus').textContent = '⏳ जोडत आहे...';
@@ -378,51 +420,91 @@
             });
 
             peer.on('error', (err) => {
-                log('ERROR: ' + err.type);
-                alert('जोडता आले नाही! कोड तपासा: ' + err.type);
-                backToLobby();
+                handlePeerError(err);
             });
         }
 
         function setupConnection() {
-            conn.on('open', () => {
-                log('Connection OPEN!');
-                connectionEstablished();
+            if (!conn) {
+                log('❌ No connection object');
+                return;
+            }
 
-                // Send test message
-                sendData({ type: 'test', from: mySymbol });
+            conn.on('open', () => {
+                log('✅ Connection established!');
+                connectionAttempts = 0;
+                connectionEstablished();
             });
 
             conn.on('data', (data) => {
-                log('📩 Received: ' + data.type);
-
-                // Handle message immediately
-                try {
-                    if (data.type === 'test') {
-                        log('Test message received from ' + data.from);
-                    } else if (data.type === 'move') {
-                        log('Move received: index=' + data.index + ', player=' + data.player);
-                        applyMove(data.index, data.player);
-                    } else if (data.type === 'reset') {
-                        log('Reset received');
-                        resetGameState();
-                    }
-                } catch (e) {
-                    log('Error handling data: ' + e.message);
-                }
+                log('📩 Data received: ' + data.type);
+                handleIncomingData(data);
             });
 
             conn.on('close', () => {
-                log('Connection CLOSED');
-                document.getElementById('connectionStatus').textContent = '❌ संपर्क तुटला!';
-                document.getElementById('connectionStatus').className = 'connection-status waiting';
-                gameActive = false;
-                disableBoard();
+                log('🔌 Connection closed');
+                handleDisconnection();
             });
 
             conn.on('error', (err) => {
-                log('Connection error: ' + err.message);
+                log('⚠️ Connection error: ' + err.type);
+
+                if (connectionAttempts < MAX_CONNECTION_ATTEMPTS && !isHost) {
+                    log('🔄 Retrying connection...');
+                    setTimeout(() => {
+                        backToLobby();
+                        setTimeout(() => {
+                            document.getElementById('joinRoomId').value = roomCode;
+                            joinGame();
+                        }, 500);
+                    }, 2000);
+                } else {
+                    document.getElementById('connectionStatus').textContent = '❌ जोडता आले नाही';
+                    document.getElementById('connectionStatus').className = 'connection-status error';
+                }
             });
+        }
+
+        function handlePeerError(err) {
+            log('🚨 Peer error: ' + err.type);
+
+            if (err.type === 'peer-unavailable') {
+                document.getElementById('connectionStatus').textContent = '❌ कोड चुकीचा आहे किंवा गेम उपलब्ध नाही';
+                document.getElementById('connectionStatus').className = 'connection-status error';
+            } else if (err.type === 'network') {
+                document.getElementById('connectionStatus').textContent = '❌ नेटवर्क एरर';
+                document.getElementById('connectionStatus').className = 'connection-status error';
+            } else {
+                document.getElementById('connectionStatus').textContent = '❌ एरर: ' + err.type;
+                document.getElementById('connectionStatus').className = 'connection-status error';
+            }
+        }
+
+        function handleIncomingData(data) {
+            try {
+                switch (data.type) {
+                    case 'test':
+                        log('✓ Test message from ' + data.from);
+                        break;
+                    case 'move':
+                        applyMove(data.index, data.player);
+                        break;
+                    case 'reset':
+                        resetGameState();
+                        break;
+                    default:
+                        log('Unknown data type: ' + data.type);
+                }
+            } catch (e) {
+                log('❌ Error handling data: ' + e.message);
+            }
+        }
+
+        function handleDisconnection() {
+            document.getElementById('connectionStatus').textContent = '❌ संपर्क तुटला!';
+            document.getElementById('connectionStatus').className = 'connection-status error';
+            gameActive = false;
+            disableBoard();
         }
 
         function connectionEstablished() {
@@ -433,35 +515,40 @@
             currentPlayer = 'X';
             enableBoard();
             updateStatus();
-            log('Game READY!');
+
+            // Send initial handshake
+            sendData({ type: 'test', from: mySymbol });
         }
 
         function sendData(data) {
-            if (conn && conn.open) {
-                try {
-                    conn.send(data);
-                    log('📤 Sent: ' + data.type);
-                    return true;
-                } catch (e) {
-                    log('Send failed: ' + e.message);
-                    return false;
-                }
-            } else {
-                log('⚠️ Cannot send - connection not open');
+            if (!conn) {
+                log('⚠️ No connection');
+                return false;
+            }
+
+            if (!conn.open) {
+                log('⚠️ Connection not open');
+                return false;
+            }
+
+            try {
+                conn.send(data);
+                log('📤 Sent: ' + data.type);
+                return true;
+            } catch (e) {
+                log('❌ Send failed: ' + e.message);
                 return false;
             }
         }
 
         function handleCellClick(index) {
-            log('Click on cell ' + index);
-
             if (board[index] !== '') {
-                log('Cell already filled');
+                log('Cell occupied');
                 return;
             }
 
             if (!gameActive) {
-                log('Game not active');
+                log('Game inactive');
                 return;
             }
 
@@ -470,40 +557,24 @@
                 return;
             }
 
-            log('Making move: ' + index + ' as ' + mySymbol);
-
-            // Apply move locally
+            log(`Move: cell ${index} as ${mySymbol}`);
             applyMove(index, mySymbol);
-
-            // Send to opponent
-            const success = sendData({
+            sendData({
                 type: 'move',
                 index: index,
                 player: mySymbol
             });
-
-            if (!success) {
-                log('Failed to send move!');
-            }
         }
 
         function applyMove(index, player) {
-            log('Applying move: index=' + index + ', player=' + player);
-
-            // Update board state
             board[index] = player;
 
-            // Update cell visually
             const cells = document.querySelectorAll('.cell');
             const cell = cells[index];
             cell.textContent = player;
             cell.classList.add(player.toLowerCase());
             cell.disabled = true;
 
-            // Force repaint
-            cell.offsetHeight;
-
-            // Check win
             if (checkWin(player)) {
                 const winner = player === mySymbol ? '🎉 तुम्ही जिंकलात!' : '😔 प्रतिस्पर्धी जिंकला!';
                 document.getElementById('status').textContent = winner;
@@ -518,23 +589,18 @@
                     document.getElementById('opponentScore').textContent = opponentScore;
                 }
                 disableBoard();
-                log('Game over - ' + player + ' wins');
                 return;
             }
 
-            // Check draw
             if (checkDraw()) {
                 document.getElementById('status').textContent = '🤝 बरोबरी!';
                 gameActive = false;
                 disableBoard();
-                log('Game over - draw');
                 return;
             }
 
-            // Switch turn
             currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
             updateStatus();
-            log('Turn switched to: ' + currentPlayer);
         }
 
         function checkWin(player) {
@@ -580,13 +646,11 @@
         }
 
         function requestReset() {
-            log('Reset requested');
             sendData({ type: 'reset' });
             resetGameState();
         }
 
         function resetGameState() {
-            log('Resetting game');
             board = ['', '', '', '', '', '', '', '', ''];
             currentPlayer = 'X';
             gameActive = true;
@@ -612,14 +676,26 @@
         }
 
         function backToLobby() {
-            if (conn) conn.close();
-            if (peer) peer.destroy();
+            if (conn) {
+                try {
+                    conn.close();
+                } catch (e) {
+                    log('Error closing connection: ' + e.message);
+                }
+            }
+            if (peer) {
+                try {
+                    peer.destroy();
+                } catch (e) {
+                    log('Error destroying peer: ' + e.message);
+                }
+            }
             location.reload();
         }
 
         window.onload = () => {
             initBoard();
-            log('App loaded');
+            log('App ready');
         };
     </script>
 </body>
