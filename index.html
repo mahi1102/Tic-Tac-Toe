@@ -52,11 +52,14 @@
 
         input {
             padding: 12px;
-            font-size: 1em;
+            font-size: 1.2em;
             border: 2px solid #667EEA;
             border-radius: 8px;
             width: 100%;
             margin: 10px 0;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 2px;
         }
 
         button {
@@ -84,13 +87,13 @@
 
         .room-id {
             background: #f0f0f0;
-            padding: 15px;
+            padding: 20px;
             border-radius: 8px;
             margin: 15px 0;
-            font-size: 1.2em;
+            font-size: 2em;
             font-weight: bold;
             color: #667EEA;
-            word-break: break-all;
+            letter-spacing: 5px;
         }
 
         .status {
@@ -203,6 +206,12 @@
         .copy-btn:hover {
             background: #45a049;
         }
+
+        .debug {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 10px;
+        }
     </style>
 </head>
 
@@ -212,12 +221,12 @@
 
         <div class="lobby" id="lobby">
             <div class="input-group">
-                <button onclick="createGame()">नवीन गेम तयार करा</button>
+                <button onclick="createGame()">🎯 नवीन गेम तयार करा</button>
             </div>
             <div style="margin: 20px 0;">किंवा</div>
             <div class="input-group">
-                <input type="text" id="joinRoomId" placeholder="Room ID टाका">
-                <button onclick="joinGame()">गेममध्ये सामील व्हा</button>
+                <input type="text" id="joinRoomId" placeholder="कोड टाका (उदा: ABC123)" maxlength="6">
+                <button onclick="joinGame()">🚀 गेममध्ये सामील व्हा</button>
             </div>
         </div>
 
@@ -227,41 +236,33 @@
             </div>
 
             <div id="roomInfo" style="display:none;">
-                <p style="margin: 10px 0;">तुमचा Room ID:</p>
+                <p style="margin: 10px 0; font-weight: bold;">तुमचा गेम कोड:</p>
                 <div class="room-id" id="roomIdDisplay"></div>
-                <button class="copy-btn" onclick="copyRoomId()">📋 Copy करा</button>
+                <button class="copy-btn" onclick="copyRoomId()">📋 कोड कॉपी करा</button>
                 <p style="margin-top: 10px; font-size: 0.9em; color: #666;">
-                    हा ID तुमच्या मित्राला पाठवा
+                    हा कोड तुमच्या मित्राला पाठवा
                 </p>
             </div>
 
             <div class="score">
                 <div>
-                    <span class="player-x">तुम्ही (X):</span>
-                    <span id="scoreX">0</span>
+                    <span class="player-x" id="myLabel">तुम्ही:</span>
+                    <span id="myScore">0</span>
                 </div>
                 <div>
-                    <span class="player-o">प्रतिस्पर्धी (O):</span>
-                    <span id="scoreO">0</span>
+                    <span class="player-o" id="opponentLabel">प्रतिस्पर्धी:</span>
+                    <span id="opponentScore">0</span>
                 </div>
             </div>
 
             <div class="status" id="status"></div>
 
-            <div class="board" id="board">
-                <button class="cell" data-index="0" onclick="handleCellClick(0)" disabled></button>
-                <button class="cell" data-index="1" onclick="handleCellClick(1)" disabled></button>
-                <button class="cell" data-index="2" onclick="handleCellClick(2)" disabled></button>
-                <button class="cell" data-index="3" onclick="handleCellClick(3)" disabled></button>
-                <button class="cell" data-index="4" onclick="handleCellClick(4)" disabled></button>
-                <button class="cell" data-index="5" onclick="handleCellClick(5)" disabled></button>
-                <button class="cell" data-index="6" onclick="handleCellClick(6)" disabled></button>
-                <button class="cell" data-index="7" onclick="handleCellClick(7)" disabled></button>
-                <button class="cell" data-index="8" onclick="handleCellClick(8)" disabled></button>
-            </div>
+            <div class="board" id="board"></div>
 
-            <button onclick="resetGame()">नवीन राउंड</button>
-            <button onclick="backToLobby()">मुख्य मेनू</button>
+            <button onclick="requestReset()">🔄 नवीन राउंड</button>
+            <button onclick="backToLobby()" style="background: #666;">🏠 मुख्य मेनू</button>
+
+            <div class="debug" id="debug"></div>
         </div>
     </div>
 
@@ -269,13 +270,14 @@
         let peer = null;
         let conn = null;
         let myId = null;
+        let roomCode = null;
         let isHost = false;
         let mySymbol = '';
         let currentPlayer = 'X';
         let board = ['', '', '', '', '', '', '', '', ''];
         let gameActive = false;
-        let scoreX = 0;
-        let scoreO = 0;
+        let myScore = 0;
+        let opponentScore = 0;
 
         const winPatterns = [
             [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -283,8 +285,33 @@
             [0, 4, 8], [2, 4, 6]
         ];
 
+        // Generate short room code
+        function generateRoomCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let code = '';
+            for (let i = 0; i < 6; i++) {
+                code += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return code;
+        }
+
+        // Initialize board
+        function initBoard() {
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+            for (let i = 0; i < 9; i++) {
+                const cell = document.createElement('button');
+                cell.className = 'cell';
+                cell.dataset.index = i;
+                cell.disabled = true;
+                cell.onclick = () => handleCellClick(i);
+                boardEl.appendChild(cell);
+            }
+        }
+
         function createGame() {
-            peer = new Peer();
+            roomCode = generateRoomCode();
+            peer = new Peer('ttt-' + roomCode);
 
             peer.on('open', (id) => {
                 myId = id;
@@ -293,26 +320,38 @@
                 document.getElementById('lobby').style.display = 'none';
                 document.getElementById('gameArea').style.display = 'block';
                 document.getElementById('roomInfo').style.display = 'block';
-                document.getElementById('roomIdDisplay').textContent = id;
-                document.getElementById('connectionStatus').textContent = 'दुसऱ्या खेळाडूची प्रतीक्षा...';
+                document.getElementById('roomIdDisplay').textContent = roomCode;
+                document.getElementById('connectionStatus').textContent = '⏳ दुसऱ्या खेळाडूची प्रतीक्षा...';
+                document.getElementById('myLabel').textContent = 'तुम्ही (X):';
+                document.getElementById('opponentLabel').textContent = 'प्रतिस्पर्धी (O):';
+                initBoard();
+                updateDebug('Room created: ' + roomCode);
             });
 
             peer.on('connection', (connection) => {
                 conn = connection;
                 setupConnection();
-                document.getElementById('connectionStatus').textContent = 'जोडले गेले!';
+                document.getElementById('connectionStatus').textContent = '✅ जोडले गेले!';
                 document.getElementById('connectionStatus').className = 'connection-status connected';
                 document.getElementById('roomInfo').style.display = 'none';
-                gameActive = true;
-                updateStatus();
-                enableBoard();
+
+                // Send initial sync
+                setTimeout(() => {
+                    sendMessage({ type: 'sync', board, currentPlayer, myScore, opponentScore });
+                    startGame();
+                }, 100);
+            });
+
+            peer.on('error', (err) => {
+                console.error('Peer error:', err);
+                updateDebug('Error: ' + err.type);
             });
         }
 
         function joinGame() {
-            const roomId = document.getElementById('joinRoomId').value.trim();
-            if (!roomId) {
-                alert('कृपया Room ID टाका');
+            roomCode = document.getElementById('joinRoomId').value.trim().toUpperCase();
+            if (!roomCode || roomCode.length !== 6) {
+                alert('कृपया 6 अक्षरांचा कोड टाका');
                 return;
             }
 
@@ -322,38 +361,93 @@
                 myId = id;
                 isHost = false;
                 mySymbol = 'O';
-                conn = peer.connect(roomId);
+                const targetId = 'ttt-' + roomCode;
+                conn = peer.connect(targetId);
                 setupConnection();
                 document.getElementById('lobby').style.display = 'none';
                 document.getElementById('gameArea').style.display = 'block';
-                document.getElementById('connectionStatus').textContent = 'जोडत आहे...';
+                document.getElementById('connectionStatus').textContent = '⏳ जोडत आहे...';
+                document.getElementById('myLabel').textContent = 'तुम्ही (O):';
+                document.getElementById('opponentLabel').textContent = 'प्रतिस्पर्धी (X):';
+                initBoard();
+                updateDebug('Joining: ' + roomCode);
+            });
+
+            peer.on('error', (err) => {
+                console.error('Peer error:', err);
+                alert('जोडता आले नाही! कोड तपासा.');
+                backToLobby();
             });
         }
 
         function setupConnection() {
             conn.on('open', () => {
-                document.getElementById('connectionStatus').textContent = 'जोडले गेले!';
+                document.getElementById('connectionStatus').textContent = '✅ जोडले गेले!';
                 document.getElementById('connectionStatus').className = 'connection-status connected';
-                gameActive = true;
-                updateStatus();
-                enableBoard();
-            });
+                updateDebug('Connected!');
 
-            conn.on('data', (data) => {
-                if (data.type === 'move') {
-                    // Immediate visual update
-                    setTimeout(() => receiveMove(data.index, data.player), 0);
-                } else if (data.type === 'reset') {
-                    setTimeout(() => resetGameState(), 0);
+                if (!isHost) {
+                    sendMessage({ type: 'ready' });
+                    startGame();
                 }
             });
 
+            conn.on('data', (data) => {
+                updateDebug('Received: ' + data.type);
+                handleMessage(data);
+            });
+
             conn.on('close', () => {
-                document.getElementById('connectionStatus').textContent = 'संपर्क तुटला!';
+                document.getElementById('connectionStatus').textContent = '❌ संपर्क तुटला!';
                 document.getElementById('connectionStatus').className = 'connection-status waiting';
                 gameActive = false;
                 disableBoard();
+                updateDebug('Connection closed');
             });
+
+            conn.on('error', (err) => {
+                console.error('Connection error:', err);
+                updateDebug('Connection error');
+            });
+        }
+
+        function sendMessage(data) {
+            if (conn && conn.open) {
+                conn.send(data);
+                updateDebug('Sent: ' + data.type);
+            }
+        }
+
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'sync':
+                    board = data.board;
+                    currentPlayer = data.currentPlayer;
+                    myScore = data.opponentScore || 0;
+                    opponentScore = data.myScore || 0;
+                    updateScoreDisplay();
+                    renderBoard();
+                    break;
+                case 'ready':
+                    if (isHost) {
+                        startGame();
+                    }
+                    break;
+                case 'move':
+                    receiveMove(data.index, data.player);
+                    break;
+                case 'reset':
+                    resetGameState();
+                    break;
+            }
+        }
+
+        function startGame() {
+            gameActive = true;
+            currentPlayer = 'X';
+            enableBoard();
+            updateStatus();
+            updateDebug('Game started!');
         }
 
         function handleCellClick(index) {
@@ -362,35 +456,25 @@
             }
 
             makeMove(index, mySymbol);
-            if (conn && conn.open) {
-                conn.send({ type: 'move', index: index, player: mySymbol });
-            }
+            sendMessage({ type: 'move', index: index, player: mySymbol });
         }
 
         function makeMove(index, player) {
             board[index] = player;
-            const cells = document.querySelectorAll('.cell');
-            cells[index].textContent = player;
-            cells[index].classList.add(player.toLowerCase());
-            cells[index].disabled = true;
-
-            // Force re-render
-            cells[index].style.display = 'none';
-            cells[index].offsetHeight;
-            cells[index].style.display = '';
+            renderBoard();
 
             if (checkWin(player)) {
                 const winner = player === mySymbol ? 'तुम्ही जिंकलात' : 'प्रतिस्पर्धी जिंकला';
                 document.getElementById('status').textContent = `🎉 ${winner}!`;
                 gameActive = false;
                 highlightWinner(player);
-                if (player === 'X') {
-                    scoreX++;
-                    document.getElementById('scoreX').textContent = scoreX;
+
+                if (player === mySymbol) {
+                    myScore++;
                 } else {
-                    scoreO++;
-                    document.getElementById('scoreO').textContent = scoreO;
+                    opponentScore++;
                 }
+                updateScoreDisplay();
                 disableBoard();
                 return;
             }
@@ -408,6 +492,17 @@
 
         function receiveMove(index, player) {
             makeMove(index, player);
+        }
+
+        function renderBoard() {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach((cell, i) => {
+                cell.textContent = board[i];
+                cell.className = 'cell';
+                if (board[i]) {
+                    cell.classList.add(board[i].toLowerCase());
+                }
+            });
         }
 
         function checkWin(player) {
@@ -433,13 +528,20 @@
 
         function updateStatus() {
             if (!gameActive) return;
-            const turn = currentPlayer === mySymbol ? 'तुमची पाळी' : 'प्रतिस्पर्धीची पाळी';
+            const turn = currentPlayer === mySymbol ? '✨ तुमची पाळी' : '⏳ प्रतिस्पर्धीची पाळी';
             document.getElementById('status').textContent = turn;
+        }
+
+        function updateScoreDisplay() {
+            document.getElementById('myScore').textContent = myScore;
+            document.getElementById('opponentScore').textContent = opponentScore;
         }
 
         function enableBoard() {
             document.querySelectorAll('.cell').forEach(cell => {
-                cell.disabled = false;
+                if (!board[cell.dataset.index]) {
+                    cell.disabled = false;
+                }
             });
         }
 
@@ -449,10 +551,8 @@
             });
         }
 
-        function resetGame() {
-            if (conn && conn.open) {
-                conn.send({ type: 'reset' });
-            }
+        function requestReset() {
+            sendMessage({ type: 'reset' });
             resetGameState();
         }
 
@@ -460,23 +560,18 @@
             board = ['', '', '', '', '', '', '', '', ''];
             currentPlayer = 'X';
             gameActive = true;
-            const cells = document.querySelectorAll('.cell');
-            cells.forEach(cell => {
-                cell.textContent = '';
-                cell.classList.remove('x', 'o', 'winner');
-                cell.disabled = false;
-                // Force visual update
-                cell.style.display = 'none';
-                cell.offsetHeight;
-                cell.style.display = '';
-            });
+            renderBoard();
             updateStatus();
+            enableBoard();
+            updateDebug('Game reset');
         }
 
         function copyRoomId() {
             const roomId = document.getElementById('roomIdDisplay').textContent;
             navigator.clipboard.writeText(roomId).then(() => {
-                alert('Room ID कॉपी झाला!');
+                alert('✅ कोड कॉपी झाला!');
+            }).catch(() => {
+                prompt('हा कोड कॉपी करा:', roomId);
             });
         }
 
@@ -485,6 +580,16 @@
             if (peer) peer.destroy();
             location.reload();
         }
+
+        function updateDebug(msg) {
+            console.log(msg);
+            document.getElementById('debug').textContent = msg;
+        }
+
+        // Initialize on load
+        window.onload = () => {
+            initBoard();
+        };
     </script>
 </body>
 
